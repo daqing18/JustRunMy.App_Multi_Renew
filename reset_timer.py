@@ -422,17 +422,27 @@ def main():
     with SB(**sb_kwargs) as sb:
         print("浏览器已启动")
         
-        # 抓取 IP 及所在地信息
+        # ==================== 本次修改处开始 ====================
+        # 抓取 IP 及所在地信息 (通过浏览器后台 JS Fetch，避免 Chrome 渲染 JSON 破坏格式)
         try:
-            sb.open("http://ip-api.com/json/")
-            body_text = sb.get_text('body')
-            ip_data = json.loads(body_text)
+            print("正在获取出口 IP 信息...")
+            ip_data = sb.execute_async_script("""
+                var callback = arguments[arguments.length - 1];
+                fetch('http://ip-api.com/json/')
+                    .then(response => response.json())
+                    .then(data => callback(data))
+                    .catch(err => callback(null));
+            """)
             
-            GLOBAL_IP = mask_ip(ip_data.get("query", "未知IP"))
-            GLOBAL_COUNTRY = ip_data.get("countryCode", "未知地区")
-            print(f"当前出口 IP: {GLOBAL_IP} ({GLOBAL_COUNTRY})")
+            if ip_data:
+                GLOBAL_IP = mask_ip(ip_data.get("query", "未知IP"))
+                GLOBAL_COUNTRY = ip_data.get("countryCode", "未知地区")
+                print(f"当前出口 IP: {GLOBAL_IP} ({GLOBAL_COUNTRY})")
+            else:
+                print("获取 IP 信息失败: 返回数据为空")
         except Exception as e:
-            print(f"获取 IP 信息失败: {e}")
+            print(f"获取 IP 信息异常: {e}")
+        # ==================== 本次修改处结束 ====================
 
         if login(sb):
             renew(sb)
