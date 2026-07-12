@@ -6,7 +6,6 @@ import sys
 import time
 import subprocess
 import requests
-import json
 from seleniumbase import SB
 
 LOGIN_URL = "https://justrunmy.app/id/Account/Login"
@@ -25,33 +24,8 @@ if not EMAIL or not PASSWORD:
     print("请检查 GitHub Repository Secrets 是否配置正确（EML_1, PWD_1...）。")
     sys.exit(1)
 
-# 全局变量
+# 全局变量，用于动态保存网页上抓取到的应用名称
 DYNAMIC_APP_NAME = "未知应用"
-GLOBAL_IP = "未知IP"
-GLOBAL_COUNTRY = "未知地区"
-GLOBAL_PROXY = "[⚠️ 直连]"
-
-# ============================================================
-#  辅助脱敏函数
-# ============================================================
-def mask_email(email_str):
-    if not email_str or "@" not in email_str:
-        return email_str
-    name, domain = email_str.split("@", 1)
-    if len(name) > 2:
-        # 保留首尾，中间用 9 个 * 代替（对齐你要求的格式）
-        masked_name = f"{name[0]}*********{name[-1]}"
-    else:
-        masked_name = f"{name[0]}*********"
-    return f"{masked_name}@{domain}"
-
-def mask_ip(ip_str):
-    if not ip_str:
-        return "Unknown"
-    parts = ip_str.split(".")
-    if len(parts) == 4:
-        return f"{parts[0]}.{parts[1]}.{parts[2]}.***"
-    return ip_str # IPv6 等情况回退不处理
 
 # ============================================================
 #  Telegram 推送模块
@@ -64,18 +38,11 @@ def send_tg_message(status_icon, status_text, time_left):
     local_time = time.gmtime(time.time() + 8 * 3600)
     current_time_str = time.strftime("%Y-%m-%d %H:%M:%S", local_time)
 
-    masked_acc = mask_email(EMAIL)
-    ip_display = f"{GLOBAL_IP} ({GLOBAL_COUNTRY}) {GLOBAL_PROXY}"
-
-    # 按照指定格式组装推送内容
     text = (
-        f"🎮 justrunmy.app 续期报告\n"
-        f"🖥 {DYNAMIC_APP_NAME}\n"
-        f"👤 账号: {masked_acc}\n"
-        f"🌐 IP: {ip_display}\n"
-        f"🕐 运行时间: {current_time_str}\n"
+        f"{DYNAMIC_APP_NAME}\n"
         f"{status_icon} {status_text}\n"
-        f"⏱️ 剩余: {time_left}"
+        f"剩余: {time_left}\n"
+        f"时间: {current_time_str}"
     )
 
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
@@ -349,7 +316,7 @@ def renew(sb) -> bool:
     
     if not found:
         sb.save_screenshot("renew_app_not_found.png")
-        send_tg_message("❌", "续期失败(找不到应用)", "未知")
+        send_tg_message("[X]", "续期失败(找不到应用)", "未知")
         return False
 
     print("点击 Reset Timer 按钮...")
@@ -359,7 +326,7 @@ def renew(sb) -> bool:
     except Exception as e:
         print(f"找不到 Reset Timer 按钮: {e}")
         sb.save_screenshot("renew_reset_btn_not_found.png")
-        send_tg_message("❌", "续期失败(找不到按钮)", "未知")
+        send_tg_message("[X]", "续期失败(找不到按钮)", "未知")
         return False
 
     print("检查续期弹窗内是否需要 CF 验证...")
@@ -367,7 +334,7 @@ def renew(sb) -> bool:
         if not handle_turnstile(sb):
             print("弹窗内的 Turnstile 验证失败")
             sb.save_screenshot("renew_turnstile_fail.png")
-            send_tg_message("❌", "续期失败(人机验证未过)", "未知")
+            send_tg_message("[X]", "续期失败(人机验证未过)", "未知")
             return False
 
     print("点击 Just Reset 确认续期...")
@@ -378,7 +345,7 @@ def renew(sb) -> bool:
     except Exception as e:
         print(f"找不到 Just Reset 按钮: {e}")
         sb.save_screenshot("renew_just_reset_not_found.png")
-        send_tg_message("❌", "续期失败(无法确认)", "未知")
+        send_tg_message("[X]", "续期失败(无法确认)", "未知")
         return False
 
     print("验证最终倒计时状态...")
@@ -391,21 +358,20 @@ def renew(sb) -> bool:
         if "2 days 23" in timer_text or "3 days" in timer_text:
             print("续期任务圆满完成！")
             sb.save_screenshot("renew_success.png")
-            send_tg_message("✅", "续期完成", timer_text)
+            send_tg_message("[OK]", "续期完成", timer_text)
             return True
         else:
             print("倒计时似乎没有重置到最高值，请人工检查截图。")
             sb.save_screenshot("renew_warning.png")
-            send_tg_message("⚠️", "续期异常(请检查)", timer_text)
+            send_tg_message("[!]", "续期异常(请检查)", timer_text)
             return True 
     except Exception as e:
         print(f"读取倒计时失败，但流程已执行完毕: {e}")
         sb.save_screenshot("renew_timer_read_fail.png")
-        send_tg_message("⚠️", "读取剩余时间失败", "未知")
+        send_tg_message("[!]", "读取剩余时间失败", "未知")
         return False
 
 def main():
-    global GLOBAL_IP, GLOBAL_COUNTRY, GLOBAL_PROXY
     print("=" * 50)
     print("   JustRunMy.app 自动登录与续期脚本")
     print("=" * 50)
@@ -417,38 +383,20 @@ def main():
         local_proxy = "http://127.0.0.1:8080"
         print(f"检测到代理配置，挂载本地通道: {local_proxy}")
         sb_kwargs["proxy"] = local_proxy
-        GLOBAL_PROXY = "[✅ 代理]"
     
     with SB(**sb_kwargs) as sb:
         print("浏览器已启动")
-        
-        # ==================== 本次修改处开始 ====================
-        # 抓取 IP 及所在地信息 (通过浏览器后台 JS Fetch，避免 Chrome 渲染 JSON 破坏格式)
         try:
-            print("正在获取出口 IP 信息...")
-            ip_data = sb.execute_async_script("""
-                var callback = arguments[arguments.length - 1];
-                fetch('http://ip-api.com/json/')
-                    .then(response => response.json())
-                    .then(data => callback(data))
-                    .catch(err => callback(null));
-            """)
-            
-            if ip_data:
-                GLOBAL_IP = mask_ip(ip_data.get("query", "未知IP"))
-                GLOBAL_COUNTRY = ip_data.get("countryCode", "未知地区")
-                print(f"当前出口 IP: {GLOBAL_IP} ({GLOBAL_COUNTRY})")
-            else:
-                print("获取 IP 信息失败: 返回数据为空")
-        except Exception as e:
-            print(f"获取 IP 信息异常: {e}")
-        # ==================== 本次修改处结束 ====================
+            sb.open("https://api.ipify.org/?format=json")
+            print(f"当前出口 IP: {sb.get_text('body')}")
+        except Exception:
+            pass
 
         if login(sb):
             renew(sb)
         else:
             print("\n登录环节失败，终止后续续期操作。")
-            send_tg_message("❌", "登录失败", "未知")
+            send_tg_message("[X]", "登录失败", "未知")
 
 if __name__ == "__main__":
     main()
