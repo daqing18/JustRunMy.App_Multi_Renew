@@ -12,14 +12,33 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       should_run: ${{ steps.check-schedule.outputs.should_run }}
+      base_delay: ${{ steps.pick-delay.outputs.base_delay }}
+      trigger_epoch: ${{ steps.pick-delay.outputs.trigger_epoch }}
     steps:
     - name: 📅 每日多账号随机签到
       id: check-schedule
       shell: bash
       run: |
-        # 每天执行，不再跳过
         echo "should_run=true" >> $GITHUB_OUTPUT
         echo "📅 每日签到模式已启动，所有账号将在不同时间执行"
+
+    - name: 🎲 计算基础延迟 (所有账号共享)
+      id: pick-delay
+      if: steps.check-schedule.outputs.should_run == 'true'
+      env:
+        RD: ${{ secrets.RD }}
+      run: |
+        if [ -n "$RD" ]; then
+          MIN=$(echo "$RD" | cut -d: -f1)
+          MAX=$(echo "$RD" | cut -d: -f2)
+        else
+          MIN=7200; MAX=21600
+        fi
+        DELAY=$(shuf -i $MIN-$MAX -n 1)
+        echo "base_delay=$DELAY" >> $GITHUB_OUTPUT
+        echo "trigger_epoch=$(date +%s)" >> $GITHUB_OUTPUT
+        H=$(( DELAY / 3600 )); M=$(( (DELAY % 3600) / 60 ))
+        echo "✅ 基础延迟: ${H}h${M}m，所有账号将在此之后分散执行"
 
     - name: 🎲 生成账号矩阵
       id: set-matrix
@@ -28,15 +47,11 @@ jobs:
       env:
         ALL_SECRETS: ${{ toJson(secrets) }}
       run: |
-        # 提取所有 EML_x 账号索引并打乱顺序 (shuf)
         ACCOUNTS=$(echo "$ALL_SECRETS" | jq -r 'keys[] | select(startswith("EML_"))' | sed 's/EML_//' | shuf)
-
         if [ -z "$ACCOUNTS" ]; then
           echo "❌ 未检测到 EML_x 格式的 Secrets，请检查配置！"
           exit 1
         fi
-
-        # 生成简单账号索引数组，例如：[2,1,3]
         INDEX_ARRAY=$(echo "$ACCOUNTS" | jq -R . | jq -s -c .)
         echo "matrix=$INDEX_ARRAY" >> $GITHUB_OUTPUT
         echo "✅ 账号矩阵已构建：$INDEX_ARRAY"
@@ -61,23 +76,21 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: ⏳ 随机延迟 (可配置)
+    - name: ⏳ 等待执行窗口 (相对触发时间)
       if: github.event_name == 'schedule'
-      env:
-        RD: ${{ secrets.RD }}
       run: |
-        if [ -n "$RD" ]; then
-          MIN=$(echo "$RD" | cut -d: -f1)
-          MAX=$(echo "$RD" | cut -d: -f2)
-          DELAY=$(shuf -i $MIN-$MAX -n 1)
+        NOW=$(date +%s)
+        TRIGGER=${{ needs.setup.outputs.trigger_epoch }}
+        BASE=${{ needs.setup.outputs.base_delay }}
+        STAGGER=$(( RANDOM % 120 + 60 ))
+        WAKE=$(( TRIGGER + BASE + STAGGER ))
+        SLEEP=$(( WAKE - NOW ))
+        if [ $SLEEP -gt 0 ]; then
+          echo "账号 ${{ matrix.account_index }} 等待 ${SLEEP}s 后执行..."
+          sleep $SLEEP
         else
-          DELAY=$(shuf -i 7200-21600 -n 1)
+          echo "账号 ${{ matrix.account_index }} 执行窗口已过，立即执行"
         fi
-        H=$(( DELAY / 3600 ))
-        M=$(( (DELAY % 3600) / 60 ))
-        S=$(( DELAY % 60 ))
-        echo "账号 ${{ matrix.account_index }} 随机延迟: $H 小时 $M 分 $S 秒"
-        sleep $DELAY
 
     - name: 🛡️ 启动 sing-box 代理代理
       env:
