@@ -296,8 +296,10 @@ def login(sb) -> bool:
             break
 
     if sb.get_current_url().split('?')[0].lower() != LOGIN_URL.lower():
-        print("登录成功！")
+        print("登录成功，等待 Cookie 生效...")
+        time.sleep(8)  # 新增：多等8秒，确保登录态稳定
         return True
+
         
     print("登录失败，页面没有跳转。")
     sb.save_screenshot("login_failed.png")
@@ -311,9 +313,22 @@ def renew(sb) -> bool:
     print("   开始自动续期流程")
     print("="*50)
     
-    print("进入控制面板: https://justrunmy.app/panel")
-    sb.open("https://justrunmy.app/panel")
-    time.sleep(5)
+    current_url = sb.get_current_url().lower()
+    if "panel" not in current_url:
+        print("当前不在面板页，尝试进入控制面板...")
+        # 优先尝试寻找页面上是否存在指向面板的链接，例如左侧菜单的 "Applications" 或 "Panel"
+        try:
+            # 尝试点击左上角的 Logo 或者侧边栏的 Applications 来进入面板
+            sb.click('a[href="/panel"]', timeout=3)
+            print("通过点击链接进入面板。")
+            time.sleep(5)
+        except Exception:
+            print("未找到面板链接，使用直接访问: https://justrunmy.app/panel")
+            sb.open("https://justrunmy.app/panel")
+            time.sleep(5)
+    else:
+        print("已在面板页，直接开始操作。")
+
 
     print("自动读取应用名称...")
     retry_count = 3
