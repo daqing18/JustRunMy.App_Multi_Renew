@@ -299,11 +299,14 @@ def renew(sb) -> bool:
     found = False
     for attempt in range(1, retry_count + 1):
         try:
-            sb.wait_for_element('h3.font-semibold', timeout=15)
-            DYNAMIC_APP_NAME = sb.get_text('h3.font-semibold')
+            # 将新的精确选择器定义为一个变量，方便复用
+            app_selector = 'h3.font-semibold.text-lg.truncate'
+            
+            sb.wait_for_element(app_selector, timeout=15)
+            DYNAMIC_APP_NAME = sb.get_text(app_selector)
             print(f"成功抓取到应用名称: {DYNAMIC_APP_NAME}")
             
-            sb.click('h3.font-semibold')
+            sb.click(app_selector)
             time.sleep(3)
             print(f"成功进入应用详情页: {sb.get_current_url()}")
             found = True
