@@ -254,7 +254,6 @@ def login(sb) -> bool:
     except Exception:
         print("页面未加载出登录表单")
         sb.save_screenshot("login_load_fail.png")
-        # --- 新增：发送带图片的错误通知 ---
         send_tg_message("[X]", "登录失败(页面未加载)", "未知", "login_load_fail.png")
         return False
 
@@ -280,31 +279,42 @@ def login(sb) -> bool:
         if not handle_turnstile(sb):
             print("登录界面的 Turnstile 验证失败")
             sb.save_screenshot("login_turnstile_fail.png")
-            # --- 新增：发送带图片的错误通知 ---
             send_tg_message("[X]", "登录失败(人机验证未过)", "未知", "login_turnstile_fail.png")
             return False
     else:
         print("未检测到 Turnstile")
 
-    print("敲击回车提交表单...")
-    sb.press_keys('input[name="Password"]', '\n')
+    # --- 核心修复 1：给网页底层状态一点时间来接收 Turnstile 的成功信号 ---
+    time.sleep(1.5)
+
+    print("点击 Sign In 按钮提交表单...")
+    try:
+        # --- 核心修复 2：不再使用回车，而是精准点击绿色的 Sign In 按钮 ---
+        if sb.is_element_visible('button[type="submit"]'):
+            sb.click('button[type="submit"]')
+        else:
+            sb.click('button:contains("Sign In")')
+    except Exception:
+        print("未能定位到按钮，作为兜底尝试回车提交...")
+        sb.press_keys('input[name="Password"]', '\n')
 
     print("等待登录跳转...")
+    # --- 核心修复 3：通过判断密码框是否消失来验证是否真正跳出了登录页 ---
+    login_success = False
     for _ in range(12):
         time.sleep(1)
-        if sb.get_current_url().split('?')[0].lower() != LOGIN_URL.lower():
+        if not sb.is_element_visible('input[name="Password"]'):
+            login_success = True
             break
 
-    if sb.get_current_url().split('?')[0].lower() != LOGIN_URL.lower():
+    if login_success:
         print("登录成功，等待 Cookie 生效...")
-        time.sleep(8)  # 新增：多等8秒，确保登录态稳定
+        time.sleep(8)
         return True
-
         
-    print("登录失败，页面没有跳转。")
+    print("登录失败，页面仍停留在登录框。")
     sb.save_screenshot("login_failed.png")
-    # --- 新增：发送带图片的错误通知 ---
-    send_tg_message("[X]", "登录失败(页面未跳转)", "未知", "login_failed.png")
+    send_tg_message("[X]", "登录失败(表单未提交/无响应)", "未知", "login_failed.png")
     return False
 
 def renew(sb) -> bool:
