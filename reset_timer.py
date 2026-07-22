@@ -28,9 +28,9 @@ if not EMAIL or not PASSWORD:
 DYNAMIC_APP_NAME = "未知应用"
 
 # ============================================================
-#  Telegram 推送模块
+#  Telegram 推送模块 (已升级支持发送图片)
 # ============================================================
-def send_tg_message(status_icon, status_text, time_left):
+def send_tg_message(status_icon, status_text, time_left, photo_path=None):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("未配置 TG_TOKEN 或 TG_ID，跳过 Telegram 推送。")
         return
@@ -45,17 +45,32 @@ def send_tg_message(status_icon, status_text, time_left):
         f"时间: {current_time_str}"
     )
 
-    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TG_CHAT_ID, "text": text}
-    
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        if r.status_code == 200:
-            print("  Telegram 通知发送成功！")
-        else:
-            print(f"  Telegram 通知发送失败: {r.text}")
-    except Exception as e:
-        print(f"  Telegram 通知发送异常: {e}")
+    # 如果传入了图片路径且文件存在，则调用 sendPhoto 接口
+    if photo_path and os.path.exists(photo_path):
+        url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
+        data = {"chat_id": TG_CHAT_ID, "caption": text}
+        try:
+            with open(photo_path, "rb") as f:
+                files = {"photo": f}
+                r = requests.post(url, data=data, files=files, timeout=20)
+            if r.status_code == 200:
+                print(f"  Telegram 图片通知发送成功！({photo_path})")
+            else:
+                print(f"  Telegram 图片通知发送失败: {r.text}")
+        except Exception as e:
+            print(f"  Telegram 图片通知发送异常: {e}")
+    # 否则退回发送纯文本的 sendMessage 接口
+    else:
+        url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": TG_CHAT_ID, "text": text}
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+            if r.status_code == 200:
+                print("  Telegram 文字通知发送成功！")
+            else:
+                print(f"  Telegram 文字通知发送失败: {r.text}")
+        except Exception as e:
+            print(f"  Telegram 文字通知发送异常: {e}")
 
 # ============================================================
 #  页面注入脚本 (Turnstile 辅助)
@@ -239,6 +254,8 @@ def login(sb) -> bool:
     except Exception:
         print("页面未加载出登录表单")
         sb.save_screenshot("login_load_fail.png")
+        # --- 新增：发送带图片的错误通知 ---
+        send_tg_message("[X]", "登录失败(页面未加载)", "未知", "login_load_fail.png")
         return False
 
     print("关闭可能的 Cookie 弹窗...")
@@ -263,6 +280,8 @@ def login(sb) -> bool:
         if not handle_turnstile(sb):
             print("登录界面的 Turnstile 验证失败")
             sb.save_screenshot("login_turnstile_fail.png")
+            # --- 新增：发送带图片的错误通知 ---
+            send_tg_message("[X]", "登录失败(人机验证未过)", "未知", "login_turnstile_fail.png")
             return False
     else:
         print("未检测到 Turnstile")
@@ -282,6 +301,8 @@ def login(sb) -> bool:
         
     print("登录失败，页面没有跳转。")
     sb.save_screenshot("login_failed.png")
+    # --- 新增：发送带图片的错误通知 ---
+    send_tg_message("[X]", "登录失败(页面未跳转)", "未知", "login_failed.png")
     return False
 
 def renew(sb) -> bool:
@@ -297,11 +318,12 @@ def renew(sb) -> bool:
     print("自动读取应用名称...")
     retry_count = 3
     found = False
+    
+    # --- 已经替换为您上一步找到的精准选择器 ---
+    app_selector = 'h3.font-semibold.text-lg.truncate'
+    
     for attempt in range(1, retry_count + 1):
         try:
-            # 将新的精确选择器定义为一个变量，方便复用
-            app_selector = 'h3.font-semibold.text-lg.truncate'
-            
             sb.wait_for_element(app_selector, timeout=15)
             DYNAMIC_APP_NAME = sb.get_text(app_selector)
             print(f"成功抓取到应用名称: {DYNAMIC_APP_NAME}")
@@ -319,7 +341,8 @@ def renew(sb) -> bool:
     
     if not found:
         sb.save_screenshot("renew_app_not_found.png")
-        send_tg_message("[X]", "续期失败(找不到应用)", "未知")
+        # --- 修改：追加了图片参数 ---
+        send_tg_message("[X]", "续期失败(找不到应用)", "未知", "renew_app_not_found.png")
         return False
 
     print("点击 Reset Timer 按钮...")
@@ -329,7 +352,8 @@ def renew(sb) -> bool:
     except Exception as e:
         print(f"找不到 Reset Timer 按钮: {e}")
         sb.save_screenshot("renew_reset_btn_not_found.png")
-        send_tg_message("[X]", "续期失败(找不到按钮)", "未知")
+        # --- 修改：追加了图片参数 ---
+        send_tg_message("[X]", "续期失败(找不到按钮)", "未知", "renew_reset_btn_not_found.png")
         return False
 
     print("检查续期弹窗内是否需要 CF 验证...")
@@ -337,7 +361,8 @@ def renew(sb) -> bool:
         if not handle_turnstile(sb):
             print("弹窗内的 Turnstile 验证失败")
             sb.save_screenshot("renew_turnstile_fail.png")
-            send_tg_message("[X]", "续期失败(人机验证未过)", "未知")
+            # --- 修改：追加了图片参数 ---
+            send_tg_message("[X]", "续期失败(人机验证未过)", "未知", "renew_turnstile_fail.png")
             return False
 
     print("点击 Just Reset 确认续期...")
@@ -348,7 +373,8 @@ def renew(sb) -> bool:
     except Exception as e:
         print(f"找不到 Just Reset 按钮: {e}")
         sb.save_screenshot("renew_just_reset_not_found.png")
-        send_tg_message("[X]", "续期失败(无法确认)", "未知")
+        # --- 修改：追加了图片参数 ---
+        send_tg_message("[X]", "续期失败(无法确认)", "未知", "renew_just_reset_not_found.png")
         return False
 
     print("验证最终倒计时状态...")
@@ -361,17 +387,20 @@ def renew(sb) -> bool:
         if "2 days 23" in timer_text or "3 days" in timer_text:
             print("续期任务圆满完成！")
             sb.save_screenshot("renew_success.png")
-            send_tg_message("[OK]", "续期完成", timer_text)
+            # --- 修改：追加了图片参数 ---
+            send_tg_message("[OK]", "续期完成", timer_text, "renew_success.png")
             return True
         else:
             print("倒计时似乎没有重置到最高值，请人工检查截图。")
             sb.save_screenshot("renew_warning.png")
-            send_tg_message("[!]", "续期异常(请检查)", timer_text)
+            # --- 修改：追加了图片参数 ---
+            send_tg_message("[!]", "续期异常(请检查)", timer_text, "renew_warning.png")
             return True 
     except Exception as e:
         print(f"读取倒计时失败，但流程已执行完毕: {e}")
         sb.save_screenshot("renew_timer_read_fail.png")
-        send_tg_message("[!]", "读取剩余时间失败", "未知")
+        # --- 修改：追加了图片参数 ---
+        send_tg_message("[!]", "读取剩余时间失败", "未知", "renew_timer_read_fail.png")
         return False
 
 def main():
@@ -399,7 +428,7 @@ def main():
             renew(sb)
         else:
             print("\n登录环节失败，终止后续续期操作。")
-            send_tg_message("[X]", "登录失败", "未知")
+            # 这里的 send_tg_message 已删除，由 login 函数内部直接发送带截图的通知
 
 if __name__ == "__main__":
     main()
