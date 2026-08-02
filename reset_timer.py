@@ -1,3 +1,6 @@
+Run echo "开始处理账号索引: 1"
+开始处理账号索引: 1
+==================================================
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -317,6 +320,77 @@ def login(sb) -> bool:
     send_tg_message("[X]", "登录失败(表单未提交/无响应)", "未知", "login_failed.png")
     return False
 
+def _click_text_button(sb, text: str) -> bool:
+    """多选择器兜底：尝试多种方式点击包含指定文本的按钮/链接"""
+    # 策略 1: 标准 button 标签
+    try:
+        sb.click(f'button:contains("{text}")', timeout=3)
+        print(f"  -> 通过 button:contains 点击 '{text}' 成功")
+        return True
+    except Exception:
+        pass
+    # 策略 2: a 标签
+    try:
+        sb.click(f'a:contains("{text}")', timeout=3)
+        print(f"  -> 通过 a:contains 点击 '{text}' 成功")
+        return True
+    except Exception:
+        pass
+    # 策略 3: span 标签
+    try:
+        sb.click(f'span:contains("{text}")', timeout=3)
+        print(f"  -> 通过 span:contains 点击 '{text}' 成功")
+        return True
+    except Exception:
+        pass
+    # 策略 4: 带 btn 类名的任意元素
+    try:
+        sb.click(f'[class*="btn"]:contains("{text}")', timeout=3)
+        print(f"  -> 通过 [class*=\"btn\"]:contains 点击 '{text}' 成功")
+        return True
+    except Exception:
+        pass
+    # 策略 5: 带 reset 类名的任意元素
+    try:
+        sb.click(f'[class*="reset"]:contains("{text}")', timeout=3)
+        print(f"  -> 通过 [class*=\"reset\"]:contains 点击 '{text}' 成功")
+        return True
+    except Exception:
+        pass
+    # 策略 6: XPath 匹配任意包含文本的标签（排除脚本/样式）
+    try:
+        xpath = f"//*[not(self::script) and not(self::style) and contains(normalize-space(text()), '{text}')]"
+        sb.click(xpath, timeout=3)
+        print(f"  -> 通过 XPath 点击 '{text}' 成功")
+        return True
+    except Exception:
+        pass
+    # 策略 7: JavaScript 终极兜底——遍历所有元素找文本
+    print(f"  -> 尝试 JavaScript 兜底查找 '{text}'...")
+    try:
+        clicked = sb.execute_script(f"""
+        (function() {{
+            var targets = document.querySelectorAll('button, a, span, div, label, h1, h2, h3, h4, h5, h6');
+            for (var i = 0; i < targets.length; i++) {{
+                var t = targets[i];
+                if (t.offsetParent === null) continue;
+                var txt = (t.textContent || '').trim();
+                if (txt.indexOf('{text}') !== -1) {{
+                    t.click();
+                    return true;
+                }}
+            }}
+            return false;
+        }})()
+        """)
+        if clicked:
+            print(f"  -> 通过 JavaScript 兜底点击 '{text}' 成功")
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def renew(sb) -> bool:
     global DYNAMIC_APP_NAME
     print("\n" + "="*50)
@@ -371,15 +445,13 @@ def renew(sb) -> bool:
         return False
 
     print("点击 Reset Timer 按钮...")
-    try:
-        sb.click('button:contains("Reset Timer")')
-        time.sleep(3)
-    except Exception as e:
-        print(f"找不到 Reset Timer 按钮: {e}")
+    if not _click_text_button(sb, "Reset Timer"):
+        print(f"找不到 Reset Timer 按钮")
         sb.save_screenshot("renew_reset_btn_not_found.png")
         # --- 修改：追加了图片参数 ---
         send_tg_message("[X]", "续期失败(找不到按钮)", "未知", "renew_reset_btn_not_found.png")
         return False
+    time.sleep(3)
 
     print("检查续期弹窗内是否需要 CF 验证...")
     if sb.execute_script(_EXISTS_JS):
@@ -391,16 +463,14 @@ def renew(sb) -> bool:
             return False
 
     print("点击 Just Reset 确认续期...")
-    try:
-        sb.click('button:contains("Just Reset")')
-        print("提交续期请求，等待服务器处理...")
-        time.sleep(5) 
-    except Exception as e:
-        print(f"找不到 Just Reset 按钮: {e}")
+    if not _click_text_button(sb, "Just Reset"):
+        print(f"找不到 Just Reset 按钮")
         sb.save_screenshot("renew_just_reset_not_found.png")
         # --- 修改：追加了图片参数 ---
         send_tg_message("[X]", "续期失败(无法确认)", "未知", "renew_just_reset_not_found.png")
         return False
+    print("提交续期请求，等待服务器处理...")
+    time.sleep(5)
 
     print("验证最终倒计时状态...")
     try:
