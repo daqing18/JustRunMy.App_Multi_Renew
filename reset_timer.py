@@ -3,6 +3,7 @@
 
 import os
 import sys
+import re
 import time
 import subprocess
 import requests
@@ -505,42 +506,53 @@ def renew(sb) -> bool:
     try:
         sb.refresh()
         time.sleep(5)
-        # 多选择器尝试读取倒计时文本
+        # 多选择器尝试读取倒计时文本（优先选最短的单个元素）
         timer_text = "未知"
+        # 优先精确匹配小元素，避免匹配到包含两套格式的父容器
         timer_selectors = [
             'span.font-mono.text-xl',
-            '[class*="font-mono"]',
-            '.text-xl.font-mono',
+            'span.text-xl.font-mono',
             'span.text-xl',
+            '.text-xl.font-mono',
+            '[class*="font-mono"]',
             '[class*="timer"]',
-            '[class*="countdown"]',
-            '[class*="time"]',
             'span:contains("day")',
             'span:contains("hour")',
-            'span:contains("minute")',
         ]
-        for sel in timer_selectors:
+        # 先尝试精确匹配小元素
+        precise_selectors = ['span.font-mono.text-xl', 'span.text-xl.font-mono', 'span.text-xl', '.text-xl.font-mono']
+        for sel in precise_selectors:
             try:
-                timer_text = sb.get_text(sel)
-                if timer_text and any(kw in timer_text.lower() for kw in ['day', 'hour', 'minute', 'second', '天', '时', '分', '秒', ':']):
-                    print(f"  通过选择器 '{sel}' 读取到时间: {timer_text}")
+                # 用 find_elements 获取所有匹配元素，取最短的那个
+                els = sb.find_elements(sel)
+                for el in els:
+                    txt = (el.text or '').strip()
+                    if txt and any(kw in txt.lower() for kw in ['day', 'hour', 'minute', 'second', 'd ', 'h ', ':', '天', '时']):
+                        if len(txt) < 25:  # 短文本才是单个时间格式
+                            timer_text = txt
+                            print(f"  通过选择器 '{sel}' 读取到时间: {timer_text}")
+                            break
+                if timer_text and timer_text != "未知":
                     break
-                timer_text = "未知"
             except Exception:
                 continue
         else:
-            # 兜底：用 JS 查找任何包含时间文本的元素
+            # 兜底：用 JS 找纯文本最短的匹配
             try:
                 js_timer = sb.execute_script("""
                 (function() {
-                    var all = document.querySelectorAll('span, div, p, h1, h2, h3, h4');
+                    var all = document.querySelectorAll('span, div, p');
+                    var best = null;
                     for (var i = 0; i < all.length; i++) {
                         var t = (all[i].textContent || '').trim();
-                        if ((t.indexOf('day') !== -1 || t.indexOf('hour') !== -1) && t.length < 60) {
-                            return t;
+                        if (t.length > 0 && t.length < 25 && 
+                            (t.indexOf('day') !== -1 || t.indexOf('hour') !== -1 || t.indexOf('d ') !== -1)) {
+                            if (!best || t.length < best.length) {
+                                best = t;
+                            }
                         }
                     }
-                    return null;
+                    return best;
                 })()
                 """)
                 if js_timer:
@@ -548,6 +560,13 @@ def renew(sb) -> bool:
                     print(f"  通过 JS 兜底读取到时间: {timer_text}")
             except Exception:
                 pass
+        
+        # 如果文本像 "1d 11:59 1 day 11:59" 这样重复，只保留短格式
+        if timer_text and timer_text != "未知":
+            # 匹配 "1d 11:59" 或 "1 day 11:59" 这种格式，取第一个
+            time_match = re.search(r'\d+\s*d(?:ay)?(?:s)?\s*\d+:\d+', timer_text, re.IGNORECASE)
+            if time_match:
+                timer_text = time_match.group(0)
         
         print(f"当前应用剩余时间: {timer_text}")
         
