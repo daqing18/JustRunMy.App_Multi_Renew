@@ -443,9 +443,53 @@ def renew(sb) -> bool:
 
     print("点击 Reset Timer 按钮...")
     if not _click_text_button(sb, "Reset Timer"):
-        print(f"找不到 Reset Timer 按钮")
+        print(f"找不到 Reset Timer 按钮，开始调试输出页面元素...")
+        # 调试：打印页面上所有可点击元素的文本
+        debug_html = sb.execute_script("""
+        (function() {
+            var tags = 'button,a,span,div,label,h1,h2,h3,h4,h5,h6,li';
+            var els = document.querySelectorAll(tags);
+            var results = [];
+            for (var i = 0; i < els.length; i++) {
+                var e = els[i];
+                var txt = (e.textContent || '').trim();
+                if (txt.length > 0 && txt.length < 100) {
+                    var rect = e.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        results.push({
+                            tag: e.tagName,
+                            text: txt,
+                            cls: (e.className || '').substring(0, 60),
+                            id: e.id || '',
+                            w: Math.round(rect.width),
+                            h: Math.round(rect.height)
+                        });
+                    }
+                }
+            }
+            return JSON.stringify(results);
+        })()
+        """)
+        import json
+        try:
+            elements = json.loads(debug_html)
+            print(f"  页面上可见元素总数: {len(elements)}")
+            # 优先显示包含 reset/timer/renew/extend 关键词的
+            keywords = ['reset', 'timer', 'renew', 'extend', '续期', '重置', 'Renew', 'Reset', 'Extend']
+            for kw in keywords:
+                matched = [e for e in elements if kw.lower() in e.get('text', '').lower()]
+                if matched:
+                    print(f"  包含 '{kw}' 的元素:")
+                    for e in matched:
+                        print(f"    <{e['tag']}> text='{e['text']}' class='{e['cls']}' id='{e['id']}' size={e['w']}x{e['h']}")
+            # 再显示所有按钮和链接
+            print("  所有 button/a 标签:")
+            for e in elements:
+                if e['tag'] in ('BUTTON', 'A'):
+                    print(f"    <{e['tag']}> text='{e['text']}' class='{e['cls']}' id='{e['id']}' size={e['w']}x{e['h']}")
+        except Exception as e2:
+            print(f"  解析调试数据失败: {e2}")
         sb.save_screenshot("renew_reset_btn_not_found.png")
-        # --- 修改：追加了图片参数 ---
         send_tg_message("[X]", "续期失败(找不到按钮)", "未知", "renew_reset_btn_not_found.png")
         return False
     time.sleep(3)
