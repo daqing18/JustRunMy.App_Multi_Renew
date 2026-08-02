@@ -318,61 +318,49 @@ def login(sb) -> bool:
     return False
 
 def _click_text_button(sb, text: str) -> bool:
-    """多选择器兜底：尝试多种方式点击包含指定文本的按钮/链接"""
-    # 策略 1: 标准 button 标签
+    """多选择器兜底：尝试多种方式点击包含指定文本的按钮/链接（大小写不敏感）"""
+    text_lower = text.lower()
+    # 策略 1: 标准 button 标签（大小写不敏感，用 text_lower 试）
+    candidates = [text, text_lower, text.capitalize(), text.lower().title()]
+    candidates = list(dict.fromkeys(candidates))  # 去重
+    for variant in candidates:
+        try:
+            sb.click(f'button:contains("{variant}")', timeout=2)
+            print(f"  -> 通过 button:contains('{variant}') 点击成功")
+            return True
+        except Exception:
+            pass
+        try:
+            sb.click(f'a:contains("{variant}")', timeout=2)
+            print(f"  -> 通过 a:contains('{variant}') 点击成功")
+            return True
+        except Exception:
+            pass
+        try:
+            sb.click(f'span:contains("{variant}")', timeout=2)
+            print(f"  -> 通过 span:contains('{variant}') 点击成功")
+            return True
+        except Exception:
+            pass
+    # 策略 2: XPath 大小写不敏感匹配
     try:
-        sb.click(f'button:contains("{text}")', timeout=3)
-        print(f"  -> 通过 button:contains 点击 '{text}' 成功")
-        return True
-    except Exception:
-        pass
-    # 策略 2: a 标签
-    try:
-        sb.click(f'a:contains("{text}")', timeout=3)
-        print(f"  -> 通过 a:contains 点击 '{text}' 成功")
-        return True
-    except Exception:
-        pass
-    # 策略 3: span 标签
-    try:
-        sb.click(f'span:contains("{text}")', timeout=3)
-        print(f"  -> 通过 span:contains 点击 '{text}' 成功")
-        return True
-    except Exception:
-        pass
-    # 策略 4: 带 btn 类名的任意元素
-    try:
-        sb.click(f'[class*="btn"]:contains("{text}")', timeout=3)
-        print(f"  -> 通过 [class*=\"btn\"]:contains 点击 '{text}' 成功")
-        return True
-    except Exception:
-        pass
-    # 策略 5: 带 reset 类名的任意元素
-    try:
-        sb.click(f'[class*="reset"]:contains("{text}")', timeout=3)
-        print(f"  -> 通过 [class*=\"reset\"]:contains 点击 '{text}' 成功")
-        return True
-    except Exception:
-        pass
-    # 策略 6: XPath 匹配任意包含文本的标签（排除脚本/样式）
-    try:
-        xpath = f"//*[not(self::script) and not(self::style) and contains(normalize-space(text()), '{text}')]"
+        xpath = "//*[not(self::script) and not(self::style) and contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '" + text_lower + "')]"
         sb.click(xpath, timeout=3)
-        print(f"  -> 通过 XPath 点击 '{text}' 成功")
+        print(f"  -> 通过 XPath 大小写不敏感点击 '{text}' 成功")
         return True
     except Exception:
         pass
-    # 策略 7: JavaScript 终极兜底——遍历所有元素找文本
-    print(f"  -> 尝试 JavaScript 兜底查找 '{text}'...")
+    # 策略 3: JavaScript 大小写不敏感终极兜底
+    print(f"  -> 尝试 JavaScript 大小写不敏感兜底查找 '{text}'...")
     try:
         clicked = sb.execute_script(f"""
         (function() {{
-            var targets = document.querySelectorAll('button, a, span, div, label, h1, h2, h3, h4, h5, h6');
+            var targets = document.querySelectorAll('button, a, span, div, label, h1, h2, h3, h4, h5, h6, li');
             for (var i = 0; i < targets.length; i++) {{
                 var t = targets[i];
                 if (t.offsetParent === null) continue;
-                var txt = (t.textContent || '').trim();
-                if (txt.indexOf('{text}') !== -1) {{
+                var txt = (t.textContent || '').trim().toLowerCase();
+                if (txt.indexOf('{text_lower}') !== -1 && t.offsetWidth > 0 && t.offsetHeight > 0) {{
                     t.click();
                     return true;
                 }}
@@ -381,7 +369,7 @@ def _click_text_button(sb, text: str) -> bool:
         }})()
         """)
         if clicked:
-            print(f"  -> 通过 JavaScript 兜底点击 '{text}' 成功")
+            print(f"  -> 通过 JavaScript 大小写不敏感点击 '{text}' 成功")
             return True
     except Exception:
         pass
